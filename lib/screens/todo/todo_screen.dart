@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../models/todo_item.dart';
 import '../../services/database_service.dart';
+import '../../services/todo_repository.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/toss_card.dart';
 
 class TodoScreen extends StatefulWidget {
-  const TodoScreen({super.key});
+  const TodoScreen({super.key, this.repository});
+  final TodoRepository? repository;
 
   @override
   State<TodoScreen> createState() => _TodoScreenState();
@@ -15,8 +17,10 @@ class TodoScreen extends StatefulWidget {
 class _TodoScreenState extends State<TodoScreen> {
   List<TodoItem> _todos = [];
   bool _loading = true;
-  final _controller = TextEditingController();
-  TodoPriority _newPriority = TodoPriority.medium;
+  String? _error;
+  bool _formOpen = false;
+  TodoRepository get _repository =>
+      widget.repository ?? DatabaseService.instance;
 
   @override
   void initState() {
@@ -24,95 +28,80 @@ class _TodoScreenState extends State<TodoScreen> {
     _load();
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
   Future<void> _load() async {
-    final todos = await DatabaseService.instance.getTodos();
-    if (!mounted) return;
-    setState(() {
-      _todos = todos;
-      _loading = false;
-    });
+    try {
+      final todos = await _repository.getTodos();
+      if (!mounted) return;
+      setState(() {
+        _todos = todos;
+        _loading = false;
+        _error = null;
+      });
+    } catch (_) {
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _error = '할 일을 불러오지 못했어요';
+        });
+    }
   }
 
-  Future<void> _add() async {
-    final title = _controller.text.trim();
-    if (title.isEmpty) return;
-    await DatabaseService.instance.insertTodo(
-      TodoItem(title: title, priority: _newPriority, createdAt: DateTime.now()),
+  Future<void> _openAddForm() async {
+    if (_formOpen) return;
+    _formOpen = true;
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _TodoForm(repository: _repository),
     );
-    _controller.clear();
-    _load();
+    _formOpen = false;
+    if (saved == true && mounted) await _load();
   }
 
   Future<void> _toggle(TodoItem todo) async {
-    await DatabaseService.instance.updateTodo(todo.copyWith(isDone: !todo.isDone));
+    await _repository.updateTodo(todo.copyWith(isDone: !todo.isDone));
     _load();
   }
 
   Future<void> _delete(TodoItem todo) async {
-    if (todo.id != null) await DatabaseService.instance.deleteTodo(todo.id!);
+    if (todo.id != null) await _repository.deleteTodo(todo.id!);
     _load();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('할 일')),
+      appBar: AppBar(title: const Text('할 일'), actions: [
+        IconButton(
+            tooltip: '할 일 추가',
+            onPressed: _openAddForm,
+            icon: const Icon(Icons.add_rounded)),
+      ]),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.textPrimary))
+          ? const Center(
+              child: CircularProgressIndicator(color: AppColors.textPrimary))
           : Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _controller,
-                              decoration: const InputDecoration(hintText: '할 일을 입력하세요'),
-                              onSubmitted: (_) => _add(),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton.filled(
-                            style: IconButton.styleFrom(
-                              backgroundColor: AppColors.accent,
-                              foregroundColor: AppColors.textPrimary,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                              minimumSize: const Size(48, 48),
-                            ),
-                            onPressed: _add,
-                            icon: const Icon(Icons.add_rounded),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          for (final p in TodoPriority.values) ...[
-                            _PriorityChip(
-                              priority: p,
-                              selected: _newPriority == p,
-                              onTap: () => setState(() => _newPriority = p),
-                            ),
-                            const SizedBox(width: 8),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                  child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _openAddForm,
+                        icon: const Icon(Icons.add_rounded),
+                        label: const Text('새 할 일 추가'),
+                      )),
                 ),
+                if (_error != null) ...[
+                  Text(_error!,
+                      style: const TextStyle(color: AppColors.danger)),
+                  TextButton(onPressed: _load, child: const Text('다시 시도')),
+                ],
                 Expanded(
                   child: _todos.isEmpty
                       ? const Center(
-                          child: Text('아직 할 일이 없어요', style: TextStyle(color: AppColors.textSecondary)),
+                          child: Text('아직 할 일이 없어요',
+                              style: TextStyle(color: AppColors.textSecondary)),
                         )
                       : ListView.builder(
                           padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
@@ -132,15 +121,20 @@ class _TodoScreenState extends State<TodoScreen> {
                                     color: AppColors.danger.withOpacity(0.1),
                                     borderRadius: BorderRadius.circular(20),
                                   ),
-                                  child: const Icon(Icons.delete_outline, color: AppColors.danger),
+                                  child: const Icon(Icons.delete_outline,
+                                      color: AppColors.danger),
                                 ),
                                 child: TossCard(
                                   onTap: () => _toggle(todo),
                                   child: Row(
                                     children: [
                                       Icon(
-                                        todo.isDone ? Icons.check_circle : Icons.circle_outlined,
-                                        color: todo.isDone ? AppColors.accentDark : AppColors.textTertiary,
+                                        todo.isDone
+                                            ? Icons.check_circle
+                                            : Icons.circle_outlined,
+                                        color: todo.isDone
+                                            ? AppColors.accentDark
+                                            : AppColors.textTertiary,
                                       ),
                                       const SizedBox(width: 12),
                                       Expanded(
@@ -149,8 +143,12 @@ class _TodoScreenState extends State<TodoScreen> {
                                           style: TextStyle(
                                             fontSize: 15,
                                             fontWeight: FontWeight.w600,
-                                            decoration: todo.isDone ? TextDecoration.lineThrough : null,
-                                            color: todo.isDone ? AppColors.textTertiary : AppColors.textPrimary,
+                                            decoration: todo.isDone
+                                                ? TextDecoration.lineThrough
+                                                : null,
+                                            color: todo.isDone
+                                                ? AppColors.textTertiary
+                                                : AppColors.textPrimary,
                                           ),
                                         ),
                                       ),
@@ -169,8 +167,112 @@ class _TodoScreenState extends State<TodoScreen> {
   }
 }
 
+class _TodoForm extends StatefulWidget {
+  const _TodoForm({required this.repository});
+  final TodoRepository repository;
+
+  @override
+  State<_TodoForm> createState() => _TodoFormState();
+}
+
+class _TodoFormState extends State<_TodoForm> {
+  final _formKey = GlobalKey<FormState>();
+  final _title = TextEditingController();
+  TodoPriority _priority = TodoPriority.medium;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _title.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_saving || !_formKey.currentState!.validate()) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.repository.insertTodo(TodoItem(
+        title: _title.text.trim(),
+        priority: _priority,
+        createdAt: DateTime.now(),
+      ));
+      if (mounted) Navigator.pop(context, true);
+    } catch (_) {
+      if (mounted)
+        setState(() {
+          _saving = false;
+          _error = '할 일을 저장하지 못했어요. 다시 시도해주세요.';
+        });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+        canPop: !_saving,
+        child: SafeArea(
+            child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+              20, 24, 20, 24 + MediaQuery.of(context).viewInsets.bottom),
+          child: Form(
+            key: _formKey,
+            child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('할 일 추가',
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: _title,
+                    autofocus: true,
+                    enabled: !_saving,
+                    textInputAction: TextInputAction.done,
+                    decoration: const InputDecoration(
+                        labelText: '할 일', hintText: '할 일을 입력하세요'),
+                    validator: (v) =>
+                        (v ?? '').trim().isEmpty ? '할 일을 입력해주세요' : null,
+                    onFieldSubmitted: (_) => _save(),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('우선순위',
+                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    for (final p in TodoPriority.values)
+                      _PriorityChip(
+                        priority: p,
+                        selected: _priority == p,
+                        onTap: () {
+                          if (!_saving) setState(() => _priority = p);
+                        },
+                      ),
+                  ]),
+                  if (_error != null)
+                    Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(_error!,
+                            style: const TextStyle(color: AppColors.danger))),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                      onPressed: _saving ? null : _save,
+                      child: Text(_saving ? '저장 중…' : '추가하기')),
+                  TextButton(
+                      onPressed: _saving ? null : () => Navigator.pop(context),
+                      child: const Text('취소')),
+                ]),
+          ),
+        )),
+      );
+}
+
 class _PriorityChip extends StatelessWidget {
-  const _PriorityChip({required this.priority, required this.selected, required this.onTap});
+  const _PriorityChip(
+      {required this.priority, required this.selected, required this.onTap});
   final TodoPriority priority;
   final bool selected;
   final VoidCallback onTap;

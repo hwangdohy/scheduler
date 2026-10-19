@@ -7,11 +7,12 @@ import '../models/diary_entry.dart';
 import '../models/schedule.dart';
 import '../models/todo_item.dart';
 import '../models/monthly_budget.dart';
+import 'todo_repository.dart';
 import 'db_factory_io.dart' if (dart.library.js_interop) 'db_factory_web.dart';
 
 /// Single SQLite gateway for the whole app. Kept as a lazy singleton so
 /// every screen shares one open database connection.
-class DatabaseService {
+class DatabaseService implements TodoRepository {
   DatabaseService._internal();
   static final DatabaseService instance = DatabaseService._internal();
   final ValueNotifier<int> budgetRevision = ValueNotifier(0);
