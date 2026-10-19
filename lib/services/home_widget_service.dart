@@ -24,8 +24,7 @@ class HomeWidgetService {
     if (kIsWeb) return;
 
     final today = DateTime.now();
-    final schedules =
-        await DatabaseService.instance.getSchedulesForDate(today);
+    final schedules = await DatabaseService.instance.getSchedulesForDate(today);
     final lines = schedules.take(4).map(_formatLine).join('\n');
 
     try {
@@ -46,8 +45,8 @@ class HomeWidgetService {
       '${date.month}월 ${date.day}일 (${_weekDays[date.weekday - 1]})';
 
   String _formatLine(Schedule schedule) {
-    final start = schedule.startHour.toString().padLeft(2, '0');
-    final end = schedule.endHour.toString().padLeft(2, '0');
+    final start = schedule.startLabel;
+    final end = schedule.endLabel;
     return '$start-$end  ${schedule.title}';
   }
 }

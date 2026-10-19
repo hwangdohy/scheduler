@@ -89,8 +89,14 @@ class DatabaseService implements TodoRepository {
     final path = join(dbPath, 'toss_schedule.db');
     return openDatabase(
       path,
-      version: 4,
+      version: 5,
       onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 5) {
+          await db.execute(
+              'ALTER TABLE schedules ADD COLUMN start_minute INTEGER NOT NULL DEFAULT 0');
+          await db.execute(
+              'ALTER TABLE schedules ADD COLUMN end_minute INTEGER NOT NULL DEFAULT 0');
+        }
         if (oldVersion < 4) {
           await db.execute(
               'ALTER TABLE todos ADD COLUMN scheduled_minutes INTEGER');
@@ -120,6 +126,8 @@ class DatabaseService implements TodoRepository {
             day_of_week INTEGER NOT NULL,
             start_hour INTEGER NOT NULL,
             end_hour INTEGER NOT NULL,
+            start_minute INTEGER NOT NULL DEFAULT 0,
+            end_minute INTEGER NOT NULL DEFAULT 0,
             title TEXT NOT NULL,
             color INTEGER NOT NULL,
             memo TEXT
@@ -174,7 +182,7 @@ class DatabaseService implements TodoRepository {
     final rows = await db.query(
       'schedules',
       where: 'date IS NULL',
-      orderBy: 'day_of_week, start_hour',
+      orderBy: 'day_of_week, start_hour, start_minute',
     );
     return rows.map(Schedule.fromMap).toList();
   }
@@ -224,7 +232,7 @@ class DatabaseService implements TodoRepository {
       'schedules',
       where: 'date IN ($placeholders)',
       whereArgs: dates,
-      orderBy: 'start_hour',
+      orderBy: 'start_hour, start_minute',
     );
     for (final row in overrideRows.map(Schedule.fromMap)) {
       overrides.putIfAbsent(row.date!, () => []).add(row);
@@ -257,13 +265,13 @@ class DatabaseService implements TodoRepository {
             'schedules',
             where: 'date = ?',
             whereArgs: [key],
-            orderBy: 'start_hour',
+            orderBy: 'start_hour, start_minute',
           )
         : await db.query(
             'schedules',
             where: 'date IS NULL AND day_of_week = ?',
             whereArgs: [date.weekday - 1],
-            orderBy: 'start_hour',
+            orderBy: 'start_hour, start_minute',
           );
     return rows.map(Schedule.fromMap).toList();
   }

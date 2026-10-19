@@ -91,7 +91,8 @@ class _DayColumn extends StatelessWidget {
   final ValueChanged<Schedule> onBlockTap;
 
   void _handleTapUp(TapUpDetails details) {
-    final hour = (details.localPosition.dy / kCellHeight).floor().clamp(0, 23).toInt();
+    final hour =
+        (details.localPosition.dy / kCellHeight).floor().clamp(0, 23).toInt();
     // Taps landing on a block are consumed by its own GestureDetector,
     // which sits above this background in the Stack.
     onEmptyTap(hour);
@@ -148,19 +149,22 @@ class _ScheduleBlock extends StatelessWidget {
     final brightness = ThemeData.estimateBrightnessForColor(color);
     final textColor =
         brightness == Brightness.dark ? Colors.white : AppColors.textPrimary;
-    final top = schedule.startHour * kCellHeight;
-    final height = (schedule.endHour - schedule.startHour) * kCellHeight;
+    final top = schedule.startMinutes / 60 * kCellHeight;
+    final height =
+        (schedule.endMinutes - schedule.startMinutes) / 60 * kCellHeight;
 
     return Positioned(
-      top: top + 2,
+      top: top + (height > 8 ? 2 : 0),
       left: 2,
       right: 2,
-      height: height - 4,
+      height: height > 8 ? height - 4 : height,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          clipBehavior: Clip.hardEdge,
+          padding: EdgeInsets.symmetric(
+              horizontal: 6, vertical: height > 16 ? 4 : 0),
           decoration: BoxDecoration(
             color: color,
             borderRadius: BorderRadius.circular(10),

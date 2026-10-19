@@ -9,7 +9,13 @@ class Schedule {
   final String? date;
   final int dayOfWeek; // 0 = Monday ... 6 = Sunday
   final int startHour; // 0-23
-  final int endHour; // 1-24, exclusive end, must be > startHour
+  final int endHour; // 0-24; 24:00 is the end of this day.
+  final int startMinute;
+  final int endMinute;
+  int get startMinutes => startHour * 60 + startMinute;
+  int get endMinutes => endHour * 60 + endMinute;
+  String get startLabel => formatScheduleTime(startMinutes);
+  String get endLabel => formatScheduleTime(endMinutes);
   final String title;
   final int colorValue;
   final String memo;
@@ -20,6 +26,8 @@ class Schedule {
     required this.dayOfWeek,
     required this.startHour,
     required this.endHour,
+    this.startMinute = 0,
+    this.endMinute = 0,
     required this.title,
     required this.colorValue,
     this.memo = '',
@@ -32,6 +40,8 @@ class Schedule {
     int? dayOfWeek,
     int? startHour,
     int? endHour,
+    int? startMinute,
+    int? endMinute,
     String? title,
     int? colorValue,
     String? memo,
@@ -42,6 +52,8 @@ class Schedule {
       dayOfWeek: dayOfWeek ?? this.dayOfWeek,
       startHour: startHour ?? this.startHour,
       endHour: endHour ?? this.endHour,
+      startMinute: startMinute ?? this.startMinute,
+      endMinute: endMinute ?? this.endMinute,
       title: title ?? this.title,
       colorValue: colorValue ?? this.colorValue,
       memo: memo ?? this.memo,
@@ -56,6 +68,8 @@ class Schedule {
       dayOfWeek: dayOfWeek,
       startHour: startHour,
       endHour: endHour,
+      startMinute: startMinute,
+      endMinute: endMinute,
       title: title,
       colorValue: colorValue,
       memo: memo,
@@ -69,6 +83,8 @@ class Schedule {
       'day_of_week': dayOfWeek,
       'start_hour': startHour,
       'end_hour': endHour,
+      'start_minute': startMinute,
+      'end_minute': endMinute,
       'title': title,
       'color': colorValue,
       'memo': memo,
@@ -82,12 +98,17 @@ class Schedule {
       dayOfWeek: map['day_of_week'] as int,
       startHour: map['start_hour'] as int,
       endHour: map['end_hour'] as int,
+      startMinute: (map['start_minute'] as int?) ?? 0,
+      endMinute: (map['end_minute'] as int?) ?? 0,
       title: map['title'] as String,
       colorValue: map['color'] as int,
       memo: (map['memo'] as String?) ?? '',
     );
   }
 }
+
+String formatScheduleTime(int minutes) =>
+    '${(minutes ~/ 60).toString().padLeft(2, '0')}:${(minutes % 60).toString().padLeft(2, '0')}';
 
 /// `yyyy-MM-dd` key used for every date-scoped row in the database.
 String scheduleDateKey(DateTime date) {

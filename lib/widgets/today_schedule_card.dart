@@ -115,8 +115,8 @@ class _SummaryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final start = schedule.startHour.toString().padLeft(2, '0');
-    final end = schedule.endHour.toString().padLeft(2, '0');
+    final start = schedule.startLabel;
+    final end = schedule.endLabel;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
