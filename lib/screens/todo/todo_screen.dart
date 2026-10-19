@@ -138,19 +138,43 @@ class _TodoScreenState extends State<TodoScreen> {
                                       ),
                                       const SizedBox(width: 12),
                                       Expanded(
-                                        child: Text(
-                                          todo.title,
-                                          style: TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w600,
-                                            decoration: todo.isDone
-                                                ? TextDecoration.lineThrough
-                                                : null,
-                                            color: todo.isDone
-                                                ? AppColors.textTertiary
-                                                : AppColors.textPrimary,
-                                          ),
-                                        ),
+                                        child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                todo.title,
+                                                style: TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w600,
+                                                  decoration: todo.isDone
+                                                      ? TextDecoration
+                                                          .lineThrough
+                                                      : null,
+                                                  color: todo.isDone
+                                                      ? AppColors.textTertiary
+                                                      : AppColors.textPrimary,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                  todo.timeLabel == null
+                                                      ? '시간 미지정'
+                                                      : '시간 ${todo.timeLabel}',
+                                                  style: const TextStyle(
+                                                      fontSize: 12,
+                                                      color: AppColors
+                                                          .textSecondary)),
+                                              if ((todo.locationLabel ?? '')
+                                                  .isNotEmpty)
+                                                Text('위치 ${todo.locationLabel}',
+                                                    style: const TextStyle(
+                                                        fontSize: 12)),
+                                              if (todo.participants.isNotEmpty)
+                                                Text('인원 ${todo.participants}',
+                                                    style: const TextStyle(
+                                                        fontSize: 12)),
+                                            ]),
                                       ),
                                       _PriorityDot(priority: todo.priority),
                                     ],
@@ -178,6 +202,9 @@ class _TodoForm extends StatefulWidget {
 class _TodoFormState extends State<_TodoForm> {
   final _formKey = GlobalKey<FormState>();
   final _title = TextEditingController();
+  final _time = TextEditingController();
+  final _location = TextEditingController();
+  final _participants = TextEditingController();
   TodoPriority _priority = TodoPriority.medium;
   bool _saving = false;
   String? _error;
@@ -185,6 +212,9 @@ class _TodoFormState extends State<_TodoForm> {
   @override
   void dispose() {
     _title.dispose();
+    _time.dispose();
+    _location.dispose();
+    _participants.dispose();
     super.dispose();
   }
 
@@ -199,6 +229,9 @@ class _TodoFormState extends State<_TodoForm> {
         title: _title.text.trim(),
         priority: _priority,
         createdAt: DateTime.now(),
+        scheduledMinutes: parseTodoTime(_time.text)!,
+        locationLabel: _location.text.trim(),
+        participants: _participants.text.trim(),
       ));
       if (mounted) Navigator.pop(context, true);
     } catch (_) {
@@ -207,6 +240,24 @@ class _TodoFormState extends State<_TodoForm> {
           _saving = false;
           _error = '할 일을 저장하지 못했어요. 다시 시도해주세요.';
         });
+    }
+  }
+
+  Future<void> _pickTime() async {
+    final minutes = parseTodoTime(_time.text);
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: minutes == null
+          ? TimeOfDay.now()
+          : TimeOfDay(hour: minutes ~/ 60, minute: minutes % 60),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+        child: child!,
+      ),
+    );
+    if (picked != null && mounted) {
+      _time.text =
+          '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
     }
   }
 
@@ -228,14 +279,53 @@ class _TodoFormState extends State<_TodoForm> {
                           TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 20),
                   TextFormField(
+                    key: const ValueKey('todo-name'),
                     controller: _title,
                     autofocus: true,
                     enabled: !_saving,
                     textInputAction: TextInputAction.done,
                     decoration: const InputDecoration(
-                        labelText: '할 일', hintText: '할 일을 입력하세요'),
+                        labelText: '이름 (필수)', hintText: '할 일을 입력하세요'),
                     validator: (v) =>
                         (v ?? '').trim().isEmpty ? '할 일을 입력해주세요' : null,
+                    onFieldSubmitted: (_) => _save(),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const ValueKey('todo-time'),
+                    controller: _time,
+                    enabled: !_saving,
+                    keyboardType: TextInputType.datetime,
+                    decoration: InputDecoration(
+                      labelText: '시간 (필수)',
+                      hintText: '09:30',
+                      helperText: '24시간 형식으로 입력하거나 시계 버튼으로 선택하세요',
+                      suffixIcon: IconButton(
+                          tooltip: '시간 선택',
+                          onPressed: _saving ? null : _pickTime,
+                          icon: const Icon(Icons.access_time)),
+                    ),
+                    validator: (v) => (v ?? '').trim().isEmpty
+                        ? '시간을 입력해주세요'
+                        : parseTodoTime(v!) == null
+                            ? '00:00~23:59 형식으로 입력해주세요'
+                            : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const ValueKey('todo-location'),
+                    controller: _location,
+                    enabled: !_saving,
+                    decoration: const InputDecoration(
+                        labelText: '위치 (선택)', hintText: '예: 강남역 2번 출구'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const ValueKey('todo-participants'),
+                    controller: _participants,
+                    enabled: !_saving,
+                    decoration: const InputDecoration(
+                        labelText: '인원 (선택)', hintText: '예: 3명 / 철수, 영희'),
                     onFieldSubmitted: (_) => _save(),
                   ),
                   const SizedBox(height: 16),

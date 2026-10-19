@@ -89,8 +89,15 @@ class DatabaseService implements TodoRepository {
     final path = join(dbPath, 'toss_schedule.db');
     return openDatabase(
       path,
-      version: 3,
+      version: 4,
       onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 4) {
+          await db.execute(
+              'ALTER TABLE todos ADD COLUMN scheduled_minutes INTEGER');
+          await db.execute(
+              "ALTER TABLE todos ADD COLUMN participants TEXT NOT NULL DEFAULT ''");
+          await db.execute('ALTER TABLE todos ADD COLUMN location_label TEXT');
+        }
         if (oldVersion < 3) await _createBudgetTables(db);
         if (oldVersion < 2) {
           await db.execute('ALTER TABLE schedules ADD COLUMN date TEXT');
@@ -128,7 +135,10 @@ class DatabaseService implements TodoRepository {
             title TEXT NOT NULL,
             is_done INTEGER NOT NULL DEFAULT 0,
             priority INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            scheduled_minutes INTEGER,
+            participants TEXT NOT NULL DEFAULT '',
+            location_label TEXT
           )
         ''');
         await db.execute('''
@@ -367,6 +377,12 @@ class DatabaseService implements TodoRepository {
   }
 
   Future<TodoItem> insertTodo(TodoItem todo) async {
+    if (todo.title.trim().isEmpty ||
+        todo.scheduledMinutes == null ||
+        todo.scheduledMinutes! < 0 ||
+        todo.scheduledMinutes! >= 24 * 60) {
+      throw ArgumentError('할 일 이름과 올바른 시간이 필요합니다');
+    }
     final db = await database;
     final id = await db.insert('todos', todo.toMap()..remove('id'));
     return todo.copyWith(id: id);
