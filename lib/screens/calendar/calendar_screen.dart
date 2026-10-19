@@ -7,6 +7,8 @@ import '../../services/database_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/toss_card.dart';
 import '../diary/diary_screen.dart';
+import '../budget/daily_expense_card.dart';
+import '../budget/money_field.dart';
 
 String _dateKey(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
 
@@ -21,24 +23,43 @@ class _CalendarScreenState extends State<CalendarScreen> {
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
   Map<String, List<CalendarEvent>> _eventsByDate = {};
+  Map<String, int> _expensesByDate = {};
+  int _loadToken = 0;
 
   @override
   void initState() {
     super.initState();
+    DatabaseService.instance.budgetRevision.addListener(_reloadExpenses);
     _loadMonth(_focusedDay);
   }
 
+  void _reloadExpenses() => _loadMonth(_focusedDay);
+
+  @override
+  void dispose() {
+    DatabaseService.instance.budgetRevision.removeListener(_reloadExpenses);
+    super.dispose();
+  }
+
   Future<void> _loadMonth(DateTime month) async {
-    final events = await DatabaseService.instance.getEventsForMonth(month.year, month.month);
+    final token = ++_loadToken;
+    final events = await DatabaseService.instance
+        .getEventsForMonth(month.year, month.month);
+    final expenses = await DatabaseService.instance
+        .getMonthlyExpenses(month.year, month.month);
     final map = <String, List<CalendarEvent>>{};
     for (final e in events) {
       map.putIfAbsent(e.date, () => []).add(e);
     }
-    if (!mounted) return;
-    setState(() => _eventsByDate = map);
+    if (!mounted || token != _loadToken) return;
+    setState(() {
+      _eventsByDate = map;
+      _expensesByDate = expenses;
+    });
   }
 
-  List<CalendarEvent> _eventsFor(DateTime day) => _eventsByDate[_dateKey(day)] ?? [];
+  List<CalendarEvent> _eventsFor(DateTime day) =>
+      _eventsByDate[_dateKey(day)] ?? [];
 
   void _selectDay(DateTime selected, DateTime focused) {
     setState(() {
@@ -71,6 +92,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
           TossCard(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
             child: TableCalendar<CalendarEvent>(
+              rowHeight: 62,
+              calendarBuilders: CalendarBuilders(
+                markerBuilder: (context, day, events) {
+                  final amount = _expensesByDate[_dateKey(day)];
+                  if (amount == null) return null;
+                  return Positioned(
+                      bottom: 0,
+                      child: Text(
+                        money(amount),
+                        style: const TextStyle(
+                            fontSize: 9, color: AppColors.textSecondary),
+                      ));
+                },
+              ),
               firstDay: DateTime(2020, 1, 1),
               lastDay: DateTime(2035, 12, 31),
               focusedDay: _focusedDay,
@@ -85,11 +120,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
               headerStyle: const HeaderStyle(
                 formatButtonVisible: false,
                 titleCentered: true,
-                titleTextStyle: TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+                titleTextStyle:
+                    TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
               ),
               daysOfWeekStyle: const DaysOfWeekStyle(
-                weekdayStyle: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600),
-                weekendStyle: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600),
+                weekdayStyle: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600),
+                weekendStyle: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600),
               ),
               calendarStyle: CalendarStyle(
                 outsideDaysVisible: false,
@@ -98,10 +138,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   shape: BoxShape.circle,
                   border: Border.all(color: AppColors.textPrimary, width: 1.4),
                 ),
-                todayTextStyle: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800),
-                selectedDecoration: const BoxDecoration(color: AppColors.accent, shape: BoxShape.circle),
-                selectedTextStyle: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800),
-                markerDecoration: const BoxDecoration(color: AppColors.accentDark, shape: BoxShape.circle),
+                todayTextStyle: const TextStyle(
+                    color: AppColors.textPrimary, fontWeight: FontWeight.w800),
+                selectedDecoration: const BoxDecoration(
+                    color: AppColors.accent, shape: BoxShape.circle),
+                selectedTextStyle: const TextStyle(
+                    color: AppColors.textPrimary, fontWeight: FontWeight.w800),
+                markerDecoration: const BoxDecoration(
+                    color: AppColors.accentDark, shape: BoxShape.circle),
                 markersAnchor: 0.9,
                 weekendTextStyle: const TextStyle(color: AppColors.textPrimary),
               ),
@@ -112,14 +156,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
             onTap: () => _showDaySheet(_selectedDay),
             child: Row(
               children: [
-                const Icon(Icons.event_note_outlined, color: AppColors.textSecondary),
+                const Icon(Icons.event_note_outlined,
+                    color: AppColors.textSecondary),
                 const SizedBox(width: 12),
                 Text(
-                  '${DateFormat('M월 d일 (E)', 'ko_KR').format(_selectedDay)} 일정 보기',
+                  '${DateFormat('M월 d일 (E)', 'ko_KR').format(_selectedDay)} 일정 · 지출',
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
-                const Icon(Icons.chevron_right_rounded, color: AppColors.textTertiary),
+                const Icon(Icons.chevron_right_rounded,
+                    color: AppColors.textTertiary),
               ],
             ),
           ),
@@ -130,7 +176,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
 }
 
 class _DayEventsSheet extends StatefulWidget {
-  const _DayEventsSheet({required this.day, required this.events, required this.onChanged});
+  const _DayEventsSheet(
+      {required this.day, required this.events, required this.onChanged});
   final DateTime day;
   final List<CalendarEvent> events;
   final VoidCallback onChanged;
@@ -143,7 +190,9 @@ class _DayEventsSheetState extends State<_DayEventsSheet> {
   late List<CalendarEvent> _events = List.of(widget.events);
 
   Future<void> _refresh() async {
-    final events = await DatabaseService.instance.getEventsForDate(_dateKey(widget.day));
+    final events =
+        await DatabaseService.instance.getEventsForDate(_dateKey(widget.day));
+    if (!mounted) return;
     setState(() => _events = events);
     widget.onChanged();
   }
@@ -160,13 +209,20 @@ class _DayEventsSheetState extends State<_DayEventsSheet> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: titleController, decoration: const InputDecoration(hintText: '제목'), autofocus: true),
+            TextField(
+                controller: titleController,
+                decoration: const InputDecoration(hintText: '제목'),
+                autofocus: true),
             const SizedBox(height: 10),
-            TextField(controller: memoController, decoration: const InputDecoration(hintText: '메모 (선택)')),
+            TextField(
+                controller: memoController,
+                decoration: const InputDecoration(hintText: '메모 (선택)')),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소')),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('저장'),
@@ -222,61 +278,82 @@ class _DayEventsSheetState extends State<_DayEventsSheet> {
                   Expanded(
                     child: Text(
                       DateFormat('M월 d일 (E)', 'ko_KR').format(widget.day),
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.w800),
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.add_circle, color: AppColors.textPrimary),
+                    icon: const Icon(Icons.add_circle,
+                        color: AppColors.textPrimary),
                     onPressed: () => _addOrEdit(),
                   ),
                 ],
               ),
               const SizedBox(height: 8),
               Expanded(
-                child: _events.isEmpty
-                    ? const Center(
-                        child: Text('등록된 일정이 없어요', style: TextStyle(color: AppColors.textSecondary)),
-                      )
-                    : ListView.builder(
-                        controller: scrollController,
-                        itemCount: _events.length,
-                        itemBuilder: (context, index) {
-                          final event = _events[index];
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: TossCard(
-                              onTap: () => _addOrEdit(existing: event),
-                              child: Row(
+                child: ListView.builder(
+                  controller: scrollController,
+                  padding: EdgeInsets.only(
+                      bottom: MediaQuery.of(context).viewInsets.bottom),
+                  itemCount: _events.length + 2,
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: DailyExpenseCard(date: widget.day),
+                      );
+                    }
+                    if (index == 1) {
+                      return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Text(_events.isEmpty ? '등록된 일정이 없어요' : '일정',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w700)));
+                    }
+                    final event = _events[index - 2];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: TossCard(
+                        onTap: () => _addOrEdit(existing: event),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                  color: Color(event.colorValue),
+                                  shape: BoxShape.circle),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Container(
-                                    width: 10,
-                                    height: 10,
-                                    decoration: BoxDecoration(color: Color(event.colorValue), shape: BoxShape.circle),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(event.title, style: const TextStyle(fontWeight: FontWeight.w700)),
-                                        if (event.memo.isNotEmpty)
-                                          Padding(
-                                            padding: const EdgeInsets.only(top: 2),
-                                            child: Text(event.memo, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                                          ),
-                                      ],
+                                  Text(event.title,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w700)),
+                                  if (event.memo.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Text(event.memo,
+                                          style: const TextStyle(
+                                              color: AppColors.textSecondary,
+                                              fontSize: 12)),
                                     ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.textTertiary),
-                                    onPressed: () => _delete(event),
-                                  ),
                                 ],
                               ),
                             ),
-                          );
-                        },
+                            IconButton(
+                              icon: const Icon(Icons.close_rounded,
+                                  size: 18, color: AppColors.textTertiary),
+                              onPressed: () => _delete(event),
+                            ),
+                          ],
+                        ),
                       ),
+                    );
+                  },
+                ),
               ),
               if (isPastOrToday) ...[
                 const SizedBox(height: 8),
@@ -285,7 +362,8 @@ class _DayEventsSheetState extends State<_DayEventsSheet> {
                     Navigator.pop(context);
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => DiaryScreen(initialDate: widget.day)),
+                      MaterialPageRoute(
+                          builder: (_) => DiaryScreen(initialDate: widget.day)),
                     );
                   },
                   icon: const Icon(Icons.menu_book_outlined),
@@ -293,7 +371,8 @@ class _DayEventsSheetState extends State<_DayEventsSheet> {
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     side: const BorderSide(color: AppColors.border),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
                   ),
                 ),
               ],

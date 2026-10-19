@@ -25,6 +25,16 @@ Flutter app: weekly timetable + todo + calendar + AI-summarized diary, styled af
    flutter run
    ```
 
+## 가계부 사용법
+
+- 캘린더에서 날짜를 누르면 **하루 지출**에 고정 지출을 제외한 생활비 합계를 저장할 수 있습니다. 같은 날짜를 다시 저장하면 기존 금액을 대체하며, 0원 기록과 기록 삭제도 지원합니다.
+- **가계부** 탭에서 년도와 월을 선택한 뒤 **예산 수정**으로 월급, 추가수입, 저축 목표와 고정 지출 항목별 이름·금액을 설정합니다. 예산은 월별로 따로 저장됩니다.
+- 월 생활비 예산 = 월급 + 추가수입 − 저축 목표 − 고정 지출 합계.
+- 남은 생활비 = 월 생활비 예산 − 해당 월에 기록한 생활비 지출 합계.
+- 하루 가용 금액은 남은 생활비를 오늘을 포함한 월말까지의 날짜 수로 나누고 원 미만을 버립니다. 미래 월은 전체 일수로 나누며, 지난 월과 예산 초과 시에는 0원을 표시합니다. 초과 금액은 별도로 표시합니다.
+- 월 전체 기준 하루 예산도 함께 표시합니다. 윤년과 월별 일수를 반영합니다.
+- 데이터는 기기 또는 웹 브라우저의 로컬 저장소에 저장됩니다. 기기 간 동기화는 제공하지 않습니다.
+
 ## Gemini API key
 
 The diary summary feature (Settings → AI 요약) needs a Gemini API key pasted in-app — get one free at https://aistudio.google.com/apikey. Without a key, diary summaries fall back to a simple local keyword picker so the app still works offline.

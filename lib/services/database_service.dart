@@ -1,18 +1,20 @@
 import 'package:path/path.dart';
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/calendar_event.dart';
 import '../models/diary_entry.dart';
 import '../models/schedule.dart';
 import '../models/todo_item.dart';
-import 'db_factory_io.dart'
-    if (dart.library.js_interop) 'db_factory_web.dart';
+import '../models/monthly_budget.dart';
+import 'db_factory_io.dart' if (dart.library.js_interop) 'db_factory_web.dart';
 
 /// Single SQLite gateway for the whole app. Kept as a lazy singleton so
 /// every screen shares one open database connection.
 class DatabaseService {
   DatabaseService._internal();
   static final DatabaseService instance = DatabaseService._internal();
+  final ValueNotifier<int> budgetRevision = ValueNotifier(0);
 
   // Holding the future (not the database) makes concurrent first calls
   // share one open instead of racing to open several.
@@ -20,24 +22,88 @@ class DatabaseService {
 
   Future<Database> get database => _dbFuture ??= _open();
 
+  static Future<void> _createBudgetTables(Database db) async {
+    await db.execute('''CREATE TABLE monthly_budgets (
+      month TEXT PRIMARY KEY, salary INTEGER NOT NULL,
+      extra_income INTEGER NOT NULL, savings_goal INTEGER NOT NULL,
+      fixed_expenses TEXT NOT NULL)''');
+    await db.execute('''CREATE TABLE daily_expenses (
+      date TEXT PRIMARY KEY, amount INTEGER NOT NULL CHECK(amount >= 0))''');
+  }
+
+  Future<MonthlyBudget> getMonthlyBudget(int year, int month) async {
+    final db = await database;
+    final key = '$year-${month.toString().padLeft(2, '0')}';
+    final rows =
+        await db.query('monthly_budgets', where: 'month = ?', whereArgs: [key]);
+    return rows.isEmpty
+        ? MonthlyBudget(year: year, month: month)
+        : MonthlyBudget.fromMap(rows.first);
+  }
+
+  Future<void> saveMonthlyBudget(MonthlyBudget budget) async {
+    final db = await database;
+    await db.insert('monthly_budgets', budget.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    budgetRevision.value++;
+  }
+
+  Future<Map<String, int>> getMonthlyExpenses(int year, int month) async {
+    final db = await database;
+    final first = scheduleDateKey(DateTime(year, month));
+    final next = scheduleDateKey(DateTime(year, month + 1));
+    final rows = await db.query('daily_expenses',
+        where: 'date >= ? AND date < ?',
+        whereArgs: [first, next],
+        orderBy: 'date');
+    return {for (final r in rows) r['date'] as String: r['amount'] as int};
+  }
+
+  Future<int?> getDailyExpense(DateTime date) async {
+    final db = await database;
+    final rows = await db.query('daily_expenses',
+        where: 'date = ?', whereArgs: [scheduleDateKey(date)]);
+    return rows.isEmpty ? null : rows.first['amount'] as int;
+  }
+
+  Future<void> saveDailyExpense(DateTime date, int amount) async {
+    if (amount < 0) throw ArgumentError.value(amount, 'amount');
+    final db = await database;
+    await db.insert(
+        'daily_expenses', {'date': scheduleDateKey(date), 'amount': amount},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    budgetRevision.value++;
+  }
+
+  Future<void> deleteDailyExpense(DateTime date) async {
+    final db = await database;
+    await db.delete('daily_expenses',
+        where: 'date = ?', whereArgs: [scheduleDateKey(date)]);
+    budgetRevision.value++;
+  }
+
   Future<Database> _open() async {
     configureDatabaseFactory();
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'toss_schedule.db');
     return openDatabase(
       path,
-      version: 2,
+      version: 3,
       onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 3) await _createBudgetTables(db);
         if (oldVersion < 2) {
           await db.execute('ALTER TABLE schedules ADD COLUMN date TEXT');
-          await db.execute('ALTER TABLE schedules ADD COLUMN template_id INTEGER');
-          await db.execute('CREATE INDEX idx_schedules_date ON schedules(date)');
+          await db
+              .execute('ALTER TABLE schedules ADD COLUMN template_id INTEGER');
+          await db
+              .execute('CREATE INDEX idx_schedules_date ON schedules(date)');
           await db.execute(
             'CREATE TABLE customized_dates (date TEXT PRIMARY KEY)',
           );
         }
       },
       onCreate: (db, version) async {
+        await _createBudgetTables(db);
         await db.execute('''
           CREATE TABLE schedules (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,7 +194,8 @@ class DatabaseService {
   Future<WeekSchedules> getWeek(DateTime monday) async {
     final db = await database;
     final dates = [
-      for (int i = 0; i < 7; i++) scheduleDateKey(monday.add(Duration(days: i))),
+      for (int i = 0; i < 7; i++)
+        scheduleDateKey(monday.add(Duration(days: i))),
     ];
     final placeholders = List.filled(dates.length, '?').join(',');
 
@@ -293,7 +360,8 @@ class DatabaseService {
 
   Future<List<TodoItem>> getTodos() async {
     final db = await database;
-    final rows = await db.query('todos', orderBy: 'is_done ASC, priority DESC, created_at DESC');
+    final rows = await db.query('todos',
+        orderBy: 'is_done ASC, priority DESC, created_at DESC');
     return rows.map(TodoItem.fromMap).toList();
   }
 
@@ -305,7 +373,8 @@ class DatabaseService {
 
   Future<void> updateTodo(TodoItem todo) async {
     final db = await database;
-    await db.update('todos', todo.toMap(), where: 'id = ?', whereArgs: [todo.id]);
+    await db
+        .update('todos', todo.toMap(), where: 'id = ?', whereArgs: [todo.id]);
   }
 
   Future<void> deleteTodo(int id) async {
@@ -343,7 +412,8 @@ class DatabaseService {
 
   Future<void> updateEvent(CalendarEvent event) async {
     final db = await database;
-    await db.update('events', event.toMap(), where: 'id = ?', whereArgs: [event.id]);
+    await db.update('events', event.toMap(),
+        where: 'id = ?', whereArgs: [event.id]);
   }
 
   Future<void> deleteEvent(int id) async {
@@ -357,7 +427,8 @@ class DatabaseService {
 
   Future<DiaryEntry?> getDiaryForDate(String date) async {
     final db = await database;
-    final rows = await db.query('diary_entries', where: 'date = ?', whereArgs: [date]);
+    final rows =
+        await db.query('diary_entries', where: 'date = ?', whereArgs: [date]);
     if (rows.isEmpty) return null;
     return DiaryEntry.fromMap(rows.first);
   }
