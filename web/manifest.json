@@ -1,32 +1,32 @@
 {
-    "name": "toss_schedule",
-    "short_name": "toss_schedule",
+    "name": "위클리",
+    "short_name": "위클리",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FFFFFF",
+    "theme_color": "#FFFFFF",
+    "description": "시간표, 할 일, 캘린더, 가계부와 일기를 한곳에서 관리하는 위클리",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
         {
-            "src": "icons/Icon-192.png",
+            "src": "icons/Icon-192.png?v=2",
             "sizes": "192x192",
             "type": "image/png"
         },
         {
-            "src": "icons/Icon-512.png",
+            "src": "icons/Icon-512.png?v=2",
             "sizes": "512x512",
             "type": "image/png"
         },
         {
-            "src": "icons/Icon-maskable-192.png",
+            "src": "icons/Icon-maskable-192.png?v=2",
             "sizes": "192x192",
             "type": "image/png",
             "purpose": "maskable"
         },
         {
-            "src": "icons/Icon-maskable-512.png",
+            "src": "icons/Icon-maskable-512.png?v=2",
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "maskable"
