@@ -1,0 +1,34 @@
+name: toss_schedule
+description: A TOSS-style weekly schedule, todo, calendar and diary app.
+publish_to: "none"
+version: 0.1.0
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  sqflite: ^2.3.3
+  path: ^1.9.0
+  path_provider: ^2.1.4
+  shared_preferences: ^2.2.3
+  provider: ^6.1.2
+  table_calendar: ^3.1.2
+  intl: ^0.20.3
+  http: ^1.2.2
+  flutter_local_notifications: ^17.2.3
+  timezone: ^0.9.4
+  sqflite_common_ffi_web: ^1.1.3
+  home_widget: ^0.10.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
