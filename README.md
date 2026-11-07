@@ -39,6 +39,25 @@ Flutter app: weekly timetable + todo + calendar + AI-summarized diary, styled af
 
 The diary summary feature (Settings → AI 요약) needs a Gemini API key pasted in-app — get one free at https://aistudio.google.com/apikey. Without a key, diary summaries fall back to a simple local keyword picker so the app still works offline.
 
+## CSV로 매주 반복하는 기본 일정 가져오기
+
+1. 설정에서 본인의 Gemini API 키를 입력합니다.
+2. 기본 일정 화면 오른쪽 위의 파일 업로드 아이콘을 누릅니다.
+3. 요일·시작 시간·종료 시간·제목이 포함된 UTF-8 CSV를 선택합니다.
+   예제는 `examples/weekly_schedule.csv`를 참고하세요. 최대 100KB, 정리 결과 최대 200개입니다.
+4. CSV 내용이 Gemini로 전송됩니다. 정리된 요일과 시간을 확인하고 추가할 일정을 선택합니다.
+5. 추가 버튼을 누르면 매주 반복하는 기본 일정에 저장합니다.
+
+기존 일정과 일기는 유지하며 같은 요일·시작/종료 시간·제목은 중복으로 추가하지 않습니다.
+개별 수정한 날짜의 일정은 기존 동작대로 유지됩니다.
+미리보기에서 제외한 일정은 저장되지 않으며 추가 후 기본 일정 편집으로 수정할 수 있습니다.
+
+## 웹 배포
+
+`main` 브랜치에 커밋을 push하면 `.github/workflows/deploy-pages.yml`의 GitHub Actions가
+테스트와 웹 빌드를 거쳐 GitHub Pages로 배포합니다.
+GitHub 저장소의 Actions에서 배포 성공 여부를 확인하세요.
+
 ## Project layout
 
 ```

@@ -8,6 +8,7 @@ import '../models/schedule.dart';
 import '../models/todo_item.dart';
 import '../models/monthly_budget.dart';
 import 'todo_repository.dart';
+import 'schedule_import_service.dart';
 import 'db_factory_io.dart' if (dart.library.js_interop) 'db_factory_web.dart';
 
 /// Single SQLite gateway for the whole app. Kept as a lazy singleton so
@@ -190,6 +191,27 @@ class DatabaseService implements TodoRepository {
   Future<void> insertTemplateSchedule(Schedule schedule) async {
     final db = await database;
     await db.insert('schedules', schedule.withDate(null).toMap()..remove('id'));
+  }
+
+  /// Import atomically, preserving all existing data and skipping duplicates.
+  Future<int> importTemplateSchedules(List<Schedule> schedules) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      final existing = await txn.query('schedules', where: 'date IS NULL');
+      final keys = existing
+          .map((row) => templateScheduleKey(Schedule.fromMap(row)))
+          .toSet();
+      var added = 0;
+      for (final schedule in schedules) {
+        if (!schedule.isTemplate) {
+          throw ArgumentError('Only weekly templates can be imported');
+        }
+        if (!keys.add(templateScheduleKey(schedule))) continue;
+        await txn.insert('schedules', schedule.toMap()..remove('id'));
+        added++;
+      }
+      return added;
+    });
   }
 
   Future<void> updateTemplateSchedule(Schedule schedule) async {

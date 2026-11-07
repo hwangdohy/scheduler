@@ -6,6 +6,7 @@ import '../../services/home_widget_service.dart';
 import '../../theme/app_colors.dart';
 import 'widgets/schedule_form_sheet.dart';
 import 'widgets/schedule_grid.dart';
+import 'csv_import_screen.dart';
 
 /// Editor for the 기본 일정 — the weekly template every date falls back to
 /// until that date is edited on its own.
@@ -50,6 +51,21 @@ class _TemplateScheduleScreenState extends State<TemplateScheduleScreen> {
     }
   }
 
+  Future<void> _importCsv() async {
+    final count = await Navigator.of(context).push<int>(
+      MaterialPageRoute(builder: (_) => const CsvImportScreen()),
+    );
+    if (!mounted || count == null) return;
+    if (count > 0) {
+      _changed = true;
+      await _load();
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('기본 일정 $count개를 추가했습니다.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
@@ -62,6 +78,11 @@ class _TemplateScheduleScreenState extends State<TemplateScheduleScreen> {
         appBar: AppBar(
           title: const Text('기본 일정'),
           actions: [
+            IconButton(
+              tooltip: 'CSV로 기본 일정 추가',
+              icon: const Icon(Icons.upload_file_rounded),
+              onPressed: _importCsv,
+            ),
             IconButton(
               icon: const Icon(Icons.add_rounded),
               onPressed: () => _openForm(day: now.weekday - 1, hour: now.hour),
@@ -84,8 +105,10 @@ class _TemplateScheduleScreenState extends State<TemplateScheduleScreen> {
                         for (int d = 0; d < 7; d++)
                           _schedules.where((s) => s.dayOfWeek == d).toList(),
                       ],
-                      onEmptyTap: (day, hour) => _openForm(day: day, hour: hour),
-                      onBlockTap: (_, schedule) => _openForm(existing: schedule),
+                      onEmptyTap: (day, hour) =>
+                          _openForm(day: day, hour: hour),
+                      onBlockTap: (_, schedule) =>
+                          _openForm(existing: schedule),
                     ),
                   ),
                 ],
