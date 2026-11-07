@@ -1,65 +1,12 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:toss_schedule/services/gemini_service.dart';
 import 'package:toss_schedule/services/schedule_import_service.dart';
 
 void main() {
-  test('CSV is sent as data and structured output is validated', () async {
-    final client = MockClient((request) async {
-      final body = jsonDecode(request.body);
-      expect(body['contents'][0]['parts'][0]['text'],
-          '요일,시작,종료,제목\n월,09:00,10:00,운동');
-      expect(body['generationConfig']['responseMimeType'], 'application/json');
-      return http.Response(
-          jsonEncode({
-            'candidates': [
-              {
-                'finishReason': 'STOP',
-                'content': {
-                  'parts': [
-                    {
-                      'text':
-                          '[{"day":0,"start":540,"end":600,"title":"운동","memo":""}]'
-                    }
-                  ]
-                },
-              }
-            ]
-          }),
-          200, headers: {'content-type': 'application/json; charset=utf-8'});
-    });
-    final result = await GeminiService(client: client)
-        .organizeScheduleCsv('요일,시작,종료,제목\n월,09:00,10:00,운동', apiKey: 'test');
-    expect(result.single.title, '운동');
-  });
-
-  test('API failures and truncated responses cannot become imports', () async {
-    for (final response in [
-      http.Response('{}', 429),
-      http.Response('{"candidates":[{"finishReason":"MAX_TOKENS"}]}', 200),
-      http.Response('{"candidates":[]}', 200),
-    ]) {
-      final service = GeminiService(client: MockClient((_) async => response));
-      await expectLater(service.organizeScheduleCsv('csv', apiKey: 'test'),
-          throwsFormatException);
-    }
-  });
-
-  test('Missing key and oversized CSV are rejected before requests', () async {
-    final service = GeminiService(
-        client:
-            MockClient((_) async => throw StateError('Should not request')));
-    await expectLater(
-        service.organizeScheduleCsv('csv', apiKey: ''), throwsFormatException);
-    await expectLater(service.organizeScheduleCsv('a' * 100001, apiKey: 'test'),
-        throwsFormatException);
-  });
-  test('AI results preserve minute precision and weekly recurrence', () {
-    final s = parseImportedSchedules(
-      '[{"day":6,"start":1415,"end":1440,"title":" 독서 ","memo":"책"}]',
-    ).single;
+  test('Weekly CSV supports BOM, CRLF, minute precision and midnight', () {
+    final s = parseScheduleCsv(
+            '\uFEFF$scheduleCsvHeader\r\n일요일,23:35,24:00, 독서 ,책\r\n')
+        .single;
     expect(s.isTemplate, isTrue);
     expect(s.dayOfWeek, 6);
     expect(s.startLabel, '23:35');
@@ -71,19 +18,69 @@ void main() {
         isNot(templateScheduleKey(s.copyWith(dayOfWeek: 0))));
   });
 
-  test('Reject invalid AI rows instead of partially importing', () {
-    for (final text in [
-      '[]',
-      '{}',
-      '[{"day":7,"start":540,"end":600,"title":"a"}]',
-      '[{"day":0,"start":600,"end":540,"title":"a"}]',
-      '[{"day":0,"start":-1,"end":540,"title":"a"}]',
-      '[{"day":0,"start":540,"end":1441,"title":"a"}]',
-      '[{"day":0,"start":540,"end":600,"title":" "}]',
-      '[{"day":0,"start":540.5,"end":600,"title":"a"}]',
-      '[{"day":0,"start":540,"end":600,"title":"a","memo":42}]',
+  test('Quoted commas, escaped quotes and multiline memos survive parsing', () {
+    final s = parseScheduleCsv(
+            '$scheduleCsvHeader\n월요일,09:00,10:30,"운동, 독서","책 ""제목""\n다음 줄"')
+        .single;
+    expect(s.title, '운동, 독서');
+    expect(s.memo, '책 "제목"\n다음 줄');
+    expect(
+        parseScheduleCsv('$scheduleCsvHeader\n\n월요일,09:00,10:00,운동,\n')
+            .single
+            .memo,
+        '');
+  });
+
+  test('Invalid rows reject the whole import', () {
+    for (final row in [
+      '월,09:00,10:00,운동,',
+      '월요일,9:00,10:00,운동,',
+      '월요일,24:00,24:00,운동,',
+      '월요일,09:60,10:00,운동,',
+      '월요일,09:00,24:01,운동,',
+      '월요일,10:00,09:00,운동,',
+      '월요일,10:00,10:00,운동,',
+      '월요일,09:00,10:00, ,',
+      '월요일,09:00,10:00,운동',
+      '월요일,09:00,10:00,운동,,',
+      '월요일,09:00,10:00,"운동,',
+      '월요일,09:00,10:00,운"동,',
+      '월요일,09:00,10:00,"운동"oops,',
     ]) {
-      expect(() => parseImportedSchedules(text), throwsFormatException);
+      expect(
+          () =>
+              parseScheduleCsv('$scheduleCsvHeader\n화요일,08:00,09:00,정상,\n$row'),
+          throwsFormatException,
+          reason: row);
     }
+    expect(
+        () => parseScheduleCsv('$scheduleCsvHeader\n월,09:00,10:00,운동,'),
+        throwsA(isA<FormatException>()
+            .having((e) => e.message, 'row', contains('2번째 행'))));
+  });
+
+  test('Header, size and row limits are enforced', () {
+    for (final csv in [
+      '',
+      scheduleCsvHeader,
+      'day,start,end,title,memo\n월요일,09:00,10:00,운동,',
+      '$scheduleCsvHeader\n월요일,09:00,10:00,${'a' * 201},',
+      'a' * 100001,
+      '$scheduleCsvHeader\n${List.filled(201, '월요일,09:00,10:00,운동,').join('\n')}',
+    ]) {
+      expect(() => parseScheduleCsv(csv), throwsFormatException);
+    }
+    expect(
+        parseScheduleCsv(
+            '$scheduleCsvHeader\n${List.filled(200, '월요일,09:00,10:00,운동,').join('\n')}'),
+        hasLength(200));
+  });
+
+  test('Example follows the format advertised in the prompt', () {
+    expect(
+        parseScheduleCsv(
+            File('examples/weekly_schedule.csv').readAsStringSync()),
+        hasLength(3));
+    expect(scheduleCsvPrompt, contains(scheduleCsvHeader));
   });
 }

@@ -2,13 +2,10 @@ import 'dart:convert';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
 import '../../models/schedule.dart';
 import '../../services/database_service.dart';
-import '../../services/gemini_service.dart';
 import '../../services/schedule_import_service.dart';
-import '../../services/settings_service.dart';
 
 class CsvImportScreen extends StatefulWidget {
   const CsvImportScreen({super.key});
@@ -25,11 +22,6 @@ class _CsvImportScreenState extends State<CsvImportScreen> {
   String? _fileName;
 
   Future<void> _chooseFile() async {
-    final key = context.read<SettingsService>().geminiApiKey;
-    if (key.trim().isEmpty) {
-      setState(() => _error = '설정에서 Gemini API 키를 먼저 입력해 주세요.');
-      return;
-    }
     setState(() {
       _busy = true;
       _error = null;
@@ -55,8 +47,7 @@ class _CsvImportScreenState extends State<CsvImportScreen> {
         throw const FormatException(
             'UTF-8 CSV가 아닙니다. 엑셀에서 CSV UTF-8 형식으로 다시 저장해 주세요.');
       }
-      final schedules =
-          await GeminiService().organizeScheduleCsv(csv, apiKey: key);
+      final schedules = parseScheduleCsv(csv);
       final existing = await DatabaseService.instance.getTemplateSchedules();
       final keys = existing.map(templateScheduleKey).toSet();
       final unique =
@@ -78,8 +69,7 @@ class _CsvImportScreenState extends State<CsvImportScreen> {
       if (mounted) setState(() => _error = e.message.toString());
     } catch (_) {
       if (mounted) {
-        setState(
-            () => _error = 'CSV를 정리하지 못했습니다. 네트워크와 파일 내용을 확인하고 다시 시도해 주세요.');
+        setState(() => _error = 'CSV를 읽지 못했습니다. 파일 내용을 확인하고 다시 시도해 주세요.');
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -117,22 +107,21 @@ class _CsvImportScreenState extends State<CsvImportScreen> {
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('CSV 내용을 Gemini로 전송해 매주 반복되는 일정으로 정리합니다.\n'
+                    const Text('API 키 없이 CSV를 읽어 매주 반복되는 기본 일정으로 추가합니다.\n'
                         '요일·시작 시간·종료 시간·제목이 포함된 UTF-8 CSV(100KB 이하)를 선택하세요.\n'
-                        '예: 월요일,09:00,10:30,운동\n\n'
+                        '첫 행: 요일,시작 시간,종료 시간,제목,메모\n'
+                        '예: 월요일,09:00,10:30,운동,\n\n'
                         '기존 일정에 추가하며 같은 요일·시간·제목은 건너뜁니다. '
                         '이미 개별 수정한 날짜에는 기본 일정 변경이 반영되지 않습니다.'),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
                       onPressed: _busy ? null : _chooseFile,
                       icon: const Icon(Icons.upload_file),
-                      label: Text(_preview.isEmpty
-                          ? 'CSV 선택 후 Gemini로 정리'
-                          : '다른 CSV 선택'),
+                      label: Text(_preview.isEmpty ? 'CSV 파일 선택' : '다른 CSV 선택'),
                     ),
                     if (_fileName != null) Text(_fileName!),
                     if (_preview.isNotEmpty)
-                      const Text('AI 결과의 요일과 시간을 확인하고 추가할 일정을 선택하세요.'),
+                      const Text('요일과 시간을 확인하고 추가할 일정을 선택하세요.'),
                     if (_error != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
