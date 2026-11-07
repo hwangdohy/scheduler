@@ -10,6 +10,7 @@ import '../models/monthly_budget.dart';
 import 'todo_repository.dart';
 import 'schedule_import_service.dart';
 import 'schedule_conflict.dart';
+import 'schedule_color_service.dart';
 import 'db_factory_io.dart' if (dart.library.js_interop) 'db_factory_web.dart';
 
 /// Single SQLite gateway for the whole app. Kept as a lazy singleton so
@@ -219,8 +220,15 @@ class DatabaseService implements TodoRepository {
     }
     final db = await database;
     await db.transaction((txn) async {
+      final colorRows = await txn.query('schedules', orderBy: 'id');
+      final references = colorRows
+          .map(Schedule.fromMap)
+          .where((s) => existing == null || s.id != existing.id);
+      final colored = schedule.copyWith(
+          colorValue: colorForScheduleTitle(schedule.title, references,
+              preferredColor: schedule.colorValue));
       for (final day in days.toList()..sort()) {
-        final candidate = schedule.copyWith(dayOfWeek: day);
+        final candidate = colored.copyWith(dayOfWeek: day);
         final isOriginal = existing != null && day == originalDay;
         if (date == null) {
           final rows = await txn.query('schedules',
@@ -267,6 +275,9 @@ class DatabaseService implements TodoRepository {
           .map((row) => templateScheduleKey(Schedule.fromMap(row)))
           .toSet();
       final saved = existing.map(Schedule.fromMap).toList();
+      final colorReferences = (await txn.query('schedules', orderBy: 'id'))
+          .map(Schedule.fromMap)
+          .toList();
       var added = 0;
       for (final schedule in schedules) {
         if (!schedule.isTemplate) {
@@ -274,8 +285,12 @@ class DatabaseService implements TodoRepository {
         }
         if (!keys.add(templateScheduleKey(schedule))) continue;
         checkScheduleConflict(schedule, saved);
-        await txn.insert('schedules', schedule.toMap()..remove('id'));
-        saved.add(schedule);
+        final colored = schedule.copyWith(
+            colorValue: colorForScheduleTitle(schedule.title, colorReferences,
+                preferredColor: schedule.colorValue));
+        await txn.insert('schedules', colored.toMap()..remove('id'));
+        saved.add(colored);
+        colorReferences.add(colored);
         added++;
       }
       return added;

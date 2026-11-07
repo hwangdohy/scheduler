@@ -326,20 +326,14 @@ class _ScheduleFormSheetState extends State<ScheduleFormSheet> {
                         onTap: _saving ? null : () => _pickTime(true))),
               ]),
               const SizedBox(height: 20),
-              const Text('색상', style: TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  for (final c in AppColors.scheduleColors)
-                    _ColorDot(
-                      color: c,
-                      selected: c.toARGB32() == _colorValue,
-                      onTap: () => setState(() => _colorValue = c.toARGB32()),
-                    ),
-                ],
-              ),
+              const Text('색상 자동 배정',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              const Text(
+                  '같은 제목이거나 한글 2글자·영문 5글자가 연속으로 겹치면 같은 색을 사용합니다. '
+                  '영문 대소문자는 구분하지 않으며, 다른 제목에는 다른 색을 배정합니다.',
+                  style:
+                      TextStyle(fontSize: 13, color: AppColors.textSecondary)),
               const SizedBox(height: 28),
               Row(
                 children: [
@@ -427,39 +421,5 @@ class _TimeButton extends StatelessWidget {
       );
 }
 
-class _ColorDot extends StatelessWidget {
-  const _ColorDot(
-      {required this.color, required this.selected, required this.onTap});
-  final Color color;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: selected
-              ? Border.all(color: AppColors.textPrimary, width: 3)
-              : Border.all(color: Colors.transparent, width: 3),
-        ),
-        child: selected
-            ? Icon(Icons.check, size: 16, color: _contrastColor(color))
-            : null,
-      ),
-    );
-  }
-}
-
 String _dateLabel(DateTime date) =>
     '${date.month}월 ${date.day}일 (${kWeekDaysKr[date.weekday - 1]})';
-
-Color _contrastColor(Color color) {
-  final brightness = ThemeData.estimateBrightnessForColor(color);
-  return brightness == Brightness.dark ? Colors.white : Colors.black;
-}

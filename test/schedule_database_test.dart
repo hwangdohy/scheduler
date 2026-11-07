@@ -29,6 +29,47 @@ void main() {
   });
   tearDown(() => db.close());
 
+  test('Registration shares title colors across weekdays and date overrides',
+      () async {
+    final monday = DateTime(2026, 11, 2);
+    await service.saveScheduleDays(block(0, 540, 600, title: '오전 운동'), {0, 2});
+    final originalColor =
+        (await service.getTemplateSchedules()).first.colorValue;
+    await service.insertTemplateSchedule(
+        block(1, 540, 600, title: '저녁 운동').copyWith(colorValue: 0xFFFF6B6B));
+    expect(
+        (await service.getTemplateSchedules())
+            .every((s) => s.colorValue == originalColor),
+        isTrue);
+    await service.addScheduleToDate(monday, block(0, 600, 660, title: '주말 운동'));
+    expect((await service.getSchedulesForDate(monday)).last.colorValue,
+        originalColor);
+    await service.insertTemplateSchedule(block(3, 540, 600, title: '독서'));
+    final reading = (await service.getTemplateSchedules())
+        .singleWhere((s) => s.title == '독서');
+    expect(reading.colorValue, isNot(originalColor));
+    await service.updateTemplateSchedule(reading.copyWith(title: '운동 수업'));
+    final updated = (await service.getTemplateSchedules())
+        .singleWhere((s) => s.title == '운동 수업');
+    expect(updated.colorValue, originalColor);
+  });
+
+  test('CSV uses existing colors and newly imported titles as color references',
+      () async {
+    await service
+        .insertTemplateSchedule(block(0, 540, 600, title: 'Study maths'));
+    final studyColor = (await service.getTemplateSchedules()).single.colorValue;
+    await service.importTemplateSchedules([
+      block(1, 540, 600, title: 'STUDY physics'),
+      block(2, 540, 600, title: '독서 모임'),
+      block(3, 540, 600, title: '저녁 독서'),
+    ]);
+    final rows = await service.getTemplateSchedules();
+    expect(rows[1].colorValue, studyColor);
+    expect(rows[2].colorValue, isNot(studyColor));
+    expect(rows[3].colorValue, rows[2].colorValue);
+  });
+
   test('Overlap is rejected; adjacent times and other weekdays are allowed',
       () async {
     await service.insertTemplateSchedule(block(0, 540, 600));
