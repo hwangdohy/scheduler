@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../models/schedule.dart';
 import '../../services/database_service.dart';
 import '../../services/schedule_import_service.dart';
+import '../../services/schedule_conflict.dart';
 
 class CsvImportScreen extends StatefulWidget {
   const CsvImportScreen({super.key});
@@ -87,6 +88,11 @@ class _CsvImportScreenState extends State<CsvImportScreen> {
           if (_selected.contains(i)) _preview[i],
       ]);
       if (mounted) Navigator.of(context).pop(count);
+    } on ScheduleConflict catch (e) {
+      if (mounted) {
+        setState(() =>
+            _error = '${e.message}\n겹치는 일정을 선택 해제해 주세요. 이번 가져오기는 저장되지 않았습니다.');
+      }
     } catch (_) {
       if (mounted) {
         setState(() => _error = '저장하지 못했습니다. 기존 데이터는 유지됩니다. 다시 시도해 주세요.');

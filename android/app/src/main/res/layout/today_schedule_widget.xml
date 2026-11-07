@@ -35,14 +35,16 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/widget_lines"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="10dp"
-        android:ellipsize="end"
-        android:lineSpacingExtra="5dp"
-        android:textColor="#191F28"
-        android:textSize="13sp" />
+        android:layout_marginTop="10dp">
+        <ListView android:id="@+id/widget_list"
+            android:layout_width="match_parent" android:layout_height="match_parent"
+            android:divider="@android:color/transparent" android:dividerHeight="1dp" />
+        <TextView android:id="@+id/widget_empty"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="오늘은 등록된 일정이 없어요" android:textColor="#636E85" android:textSize="13sp" />
+    </FrameLayout>
 </LinearLayout>

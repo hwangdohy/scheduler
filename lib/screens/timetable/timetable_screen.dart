@@ -1,14 +1,19 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:home_widget/home_widget.dart';
 
 import '../../models/schedule.dart';
 import '../../services/database_service.dart';
 import '../../services/home_widget_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/today_schedule_card.dart';
+import '../../widgets/today_schedule_list.dart';
 import '../../widgets/toss_card.dart';
 import 'template_schedule_screen.dart';
 import 'widgets/schedule_form_sheet.dart';
 import 'widgets/schedule_grid.dart';
+import 'widgets/schedule_clear_menu.dart';
 
 /// Main screen: one real calendar week of the timetable. Every date starts
 /// out filled from the 기본 일정 and keeps its own copy once edited.
@@ -19,16 +24,66 @@ class TimetableScreen extends StatefulWidget {
   State<TimetableScreen> createState() => _TimetableScreenState();
 }
 
-class _TimetableScreenState extends State<TimetableScreen> {
+class _TimetableScreenState extends State<TimetableScreen>
+    with WidgetsBindingObserver {
   late DateTime _monday = mondayOfWeek(DateTime.now());
   WeekSchedules? _week;
   bool _loading = true;
   int _reloadToken = 0;
+  StreamSubscription<Uri?>? _widgetSubscription;
+  Timer? _dayTimer;
+  bool _todayListOpen = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _scheduleDayRefresh();
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      _widgetSubscription = HomeWidget.widgetClicked.listen(_handleWidgetTap);
+      HomeWidget.initiallyLaunchedFromHomeWidget().then(_handleWidgetTap);
+    }
     _load();
+  }
+
+  void _scheduleDayRefresh() {
+    _dayTimer?.cancel();
+    final now = DateTime.now();
+    _dayTimer =
+        Timer(DateTime(now.year, now.month, now.day + 1).difference(now), () {
+      if (mounted) {
+        _load();
+        _scheduleDayRefresh();
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _load();
+      _scheduleDayRefresh();
+    }
+  }
+
+  Future<void> _handleWidgetTap(Uri? uri) async {
+    if (!mounted || uri?.host != 'today-schedules' || _todayListOpen) return;
+    _todayListOpen = true;
+    try {
+      final schedules =
+          await DatabaseService.instance.getSchedulesForDate(DateTime.now());
+      if (mounted) await showTodayScheduleList(context, schedules);
+    } finally {
+      _todayListOpen = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _widgetSubscription?.cancel();
+    _dayTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -47,7 +102,8 @@ class _TimetableScreenState extends State<TimetableScreen> {
   /// Index of today inside the week on screen, or null when out of view.
   int? get _todayIndex {
     final now = DateTime.now();
-    final days = DateTime(now.year, now.month, now.day).difference(_monday).inDays;
+    final days =
+        DateTime(now.year, now.month, now.day).difference(_monday).inDays;
     return days >= 0 && days < 7 ? days : null;
   }
 
@@ -59,7 +115,8 @@ class _TimetableScreenState extends State<TimetableScreen> {
     _load();
   }
 
-  Future<void> _openForm({required int day, Schedule? existing, int? hour}) async {
+  Future<void> _openForm(
+      {required int day, Schedule? existing, int? hour}) async {
     final changed = await showScheduleFormSheet(
       context,
       date: _dateAt(day),
@@ -87,6 +144,13 @@ class _TimetableScreenState extends State<TimetableScreen> {
           '기본 일정으로 다시 채워져요.',
         ),
         actions: [
+          ScheduleClearMenu(
+              week: _monday,
+              onClear: (day) async {
+                await DatabaseService.instance
+                    .clearWeekSchedules(_monday, dayOfWeek: day);
+                await _load();
+              }),
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
             child: const Text('취소'),

@@ -4,6 +4,7 @@ import '../models/schedule.dart';
 import '../services/database_service.dart';
 import '../theme/app_colors.dart';
 import 'toss_card.dart';
+import 'today_schedule_list.dart';
 
 const List<String> _weekDays = ['월', '화', '수', '목', '금', '토', '일'];
 const int _maxVisible = 3;
@@ -11,9 +12,11 @@ const int _maxVisible = 3;
 /// At-a-glance summary of today's timetable. Bump [reloadToken] to make it
 /// re-read the database after a schedule changes elsewhere.
 class TodayScheduleCard extends StatefulWidget {
-  const TodayScheduleCard({super.key, required this.reloadToken});
+  const TodayScheduleCard(
+      {super.key, required this.reloadToken, this.loadSchedules});
 
   final int reloadToken;
+  final Future<List<Schedule>> Function()? loadSchedules;
 
   @override
   State<TodayScheduleCard> createState() => _TodayScheduleCardState();
@@ -36,8 +39,8 @@ class _TodayScheduleCardState extends State<TodayScheduleCard> {
   }
 
   Future<void> _load() async {
-    final schedules =
-        await DatabaseService.instance.getSchedulesForDate(DateTime.now());
+    final schedules = await (widget.loadSchedules?.call() ??
+        DatabaseService.instance.getSchedulesForDate(DateTime.now()));
     if (!mounted) return;
     setState(() {
       _schedules = schedules;
@@ -67,13 +70,12 @@ class _TodayScheduleCardState extends State<TodayScheduleCard> {
                   ),
                 ),
               ),
-              Text(
-                _loading ? '' : '오늘 일정 ${_schedules.length}개',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textSecondary,
-                ),
+              TextButton(
+                onPressed: _loading
+                    ? null
+                    : () => showTodayScheduleList(context, _schedules),
+                child:
+                    Text(_loading ? '불러오는 중' : '오늘 일정 ${_schedules.length}개 ›'),
               ),
             ],
           ),
@@ -93,13 +95,9 @@ class _TodayScheduleCardState extends State<TodayScheduleCard> {
             if (hidden > 0)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  '+ $hidden개 더',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textSecondary,
-                  ),
+                child: TextButton(
+                  onPressed: () => showTodayScheduleList(context, _schedules),
+                  child: Text('+ $hidden개 더 보기'),
                 ),
               ),
           ],

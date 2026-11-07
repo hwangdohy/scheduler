@@ -9,12 +9,15 @@ import '../models/todo_item.dart';
 import '../models/monthly_budget.dart';
 import 'todo_repository.dart';
 import 'schedule_import_service.dart';
+import 'schedule_conflict.dart';
 import 'db_factory_io.dart' if (dart.library.js_interop) 'db_factory_web.dart';
 
 /// Single SQLite gateway for the whole app. Kept as a lazy singleton so
 /// every screen shares one open database connection.
 class DatabaseService implements TodoRepository {
   DatabaseService._internal();
+  @visibleForTesting
+  DatabaseService.forTesting(Database db) : _dbFuture = Future.value(db);
   static final DatabaseService instance = DatabaseService._internal();
   final ValueNotifier<int> budgetRevision = ValueNotifier(0);
 
@@ -188,9 +191,71 @@ class DatabaseService implements TodoRepository {
     return rows.map(Schedule.fromMap).toList();
   }
 
-  Future<void> insertTemplateSchedule(Schedule schedule) async {
+  Future<Map<String, Object>> getWidgetScheduleSnapshot() async {
     final db = await database;
-    await db.insert('schedules', schedule.withDate(null).toMap()..remove('id'));
+    return db.transaction((txn) async => {
+          'schedules':
+              await txn.query('schedules', orderBy: 'start_hour, start_minute'),
+          'customized_dates': (await txn.query('customized_dates'))
+              .map((row) => row['date'])
+              .toList(),
+        });
+  }
+
+  Future<void> insertTemplateSchedule(Schedule schedule) async {
+    await saveScheduleDays(schedule, {schedule.dayOfWeek});
+  }
+
+  /// Save all selected weekdays atomically. Date selections apply to that week.
+  /// While editing, retain the original weekday and copy to the extra days.
+  Future<void> saveScheduleDays(Schedule schedule, Set<int> days,
+      {DateTime? date, Schedule? existing}) async {
+    if (days.isEmpty || days.any((d) => d < 0 || d > 6)) {
+      throw ScheduleConflict('요일을 한 개 이상 선택해 주세요.');
+    }
+    final originalDay = date != null ? date.weekday - 1 : existing?.dayOfWeek;
+    if (existing != null && !days.contains(originalDay)) {
+      throw ScheduleConflict('수정 중인 일정의 원래 요일을 포함해 주세요.');
+    }
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final day in days.toList()..sort()) {
+        final candidate = schedule.copyWith(dayOfWeek: day);
+        final isOriginal = existing != null && day == originalDay;
+        if (date == null) {
+          final rows = await txn.query('schedules',
+              where: 'date IS NULL AND day_of_week = ?', whereArgs: [day]);
+          checkScheduleConflict(candidate, rows.map(Schedule.fromMap),
+              excludingId: isOriginal ? existing.id : null);
+          final values = candidate.withDate(null).toMap()..remove('id');
+          if (isOriginal) {
+            await txn.update('schedules', values,
+                where: 'id = ?', whereArgs: [existing.id]);
+          } else {
+            await txn.insert('schedules', values);
+          }
+        } else {
+          final target = mondayOfWeek(date).add(Duration(days: day));
+          final key = scheduleDateKey(target);
+          await _materializeDate(key, day, executor: txn);
+          final id = isOriginal
+              ? await _rowIdOnDate(key, existing, executor: txn)
+              : null;
+          final rows =
+              await txn.query('schedules', where: 'date = ?', whereArgs: [key]);
+          checkScheduleConflict(candidate, rows.map(Schedule.fromMap),
+              excludingId: id, label: '${target.month}월 ${target.day}일');
+          final values = candidate.withDate(key).toMap()..remove('id');
+          if (isOriginal) {
+            if (id == null) throw StateError('수정할 일정을 찾지 못했습니다.');
+            await txn
+                .update('schedules', values, where: 'id = ?', whereArgs: [id]);
+          } else {
+            await txn.insert('schedules', values);
+          }
+        }
+      }
+    });
   }
 
   /// Import atomically, preserving all existing data and skipping duplicates.
@@ -201,13 +266,16 @@ class DatabaseService implements TodoRepository {
       final keys = existing
           .map((row) => templateScheduleKey(Schedule.fromMap(row)))
           .toSet();
+      final saved = existing.map(Schedule.fromMap).toList();
       var added = 0;
       for (final schedule in schedules) {
         if (!schedule.isTemplate) {
           throw ArgumentError('Only weekly templates can be imported');
         }
         if (!keys.add(templateScheduleKey(schedule))) continue;
+        checkScheduleConflict(schedule, saved);
         await txn.insert('schedules', schedule.toMap()..remove('id'));
+        saved.add(schedule);
         added++;
       }
       return added;
@@ -215,18 +283,42 @@ class DatabaseService implements TodoRepository {
   }
 
   Future<void> updateTemplateSchedule(Schedule schedule) async {
-    final db = await database;
-    await db.update(
-      'schedules',
-      schedule.withDate(null).toMap(),
-      where: 'id = ?',
-      whereArgs: [schedule.id],
-    );
+    await saveScheduleDays(schedule, {schedule.dayOfWeek}, existing: schedule);
   }
 
   Future<void> deleteTemplateSchedule(int id) async {
     final db = await database;
     await db.delete('schedules', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> clearTemplateSchedules({int? dayOfWeek}) async {
+    if (dayOfWeek != null && (dayOfWeek < 0 || dayOfWeek > 6)) {
+      throw ArgumentError.value(dayOfWeek, 'dayOfWeek');
+    }
+    final db = await database;
+    await db.delete('schedules',
+        where: dayOfWeek == null
+            ? 'date IS NULL'
+            : 'date IS NULL AND day_of_week = ?',
+        whereArgs: dayOfWeek == null ? null : [dayOfWeek]);
+  }
+
+  /// Empty overrides deliberately prevent the weekly template reappearing.
+  Future<void> clearWeekSchedules(DateTime week, {int? dayOfWeek}) async {
+    if (dayOfWeek != null && (dayOfWeek < 0 || dayOfWeek > 6)) {
+      throw ArgumentError.value(dayOfWeek, 'dayOfWeek');
+    }
+    final monday = mondayOfWeek(week);
+    final days = dayOfWeek == null ? List.generate(7, (i) => i) : [dayOfWeek];
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final day in days) {
+        final key = scheduleDateKey(monday.add(Duration(days: day)));
+        await txn.delete('schedules', where: 'date = ?', whereArgs: [key]);
+        await txn.insert('customized_dates', {'date': key},
+            conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
+    });
   }
 
   /// What actually shows on each day of the week starting at [monday]:
@@ -300,8 +392,9 @@ class DatabaseService implements TodoRepository {
 
   /// Copy-on-write. The first date-specific edit snapshots that day's
   /// 기본 일정 into real rows, so later template edits leave the date alone.
-  Future<void> _materializeDate(String date, int dayOfWeek) async {
-    final db = await database;
+  Future<void> _materializeDate(String date, int dayOfWeek,
+      {DatabaseExecutor? executor}) async {
+    final db = executor ?? await database;
     final already = await db.query(
       'customized_dates',
       where: 'date = ?',
@@ -331,9 +424,10 @@ class DatabaseService implements TodoRepository {
 
   /// A block shown on a date may still be a template row the user has
   /// never touched; after materializing, its copy is found via template_id.
-  Future<int?> _rowIdOnDate(String date, Schedule shown) async {
+  Future<int?> _rowIdOnDate(String date, Schedule shown,
+      {DatabaseExecutor? executor}) async {
     if (!shown.isTemplate) return shown.id;
-    final db = await database;
+    final db = executor ?? await database;
     final rows = await db.query(
       'schedules',
       columns: ['id'],
@@ -345,16 +439,7 @@ class DatabaseService implements TodoRepository {
   }
 
   Future<void> addScheduleToDate(DateTime date, Schedule schedule) async {
-    final key = scheduleDateKey(date);
-    final dayOfWeek = date.weekday - 1;
-    await _materializeDate(key, dayOfWeek);
-    final db = await database;
-    await db.insert(
-      'schedules',
-      schedule.withDate(key).toMap()
-        ..remove('id')
-        ..['day_of_week'] = dayOfWeek,
-    );
+    await saveScheduleDays(schedule, {date.weekday - 1}, date: date);
   }
 
   Future<void> updateScheduleOnDate(
@@ -362,20 +447,8 @@ class DatabaseService implements TodoRepository {
     Schedule shown,
     Schedule edited,
   ) async {
-    final key = scheduleDateKey(date);
-    final dayOfWeek = date.weekday - 1;
-    await _materializeDate(key, dayOfWeek);
-    final id = await _rowIdOnDate(key, shown);
-    if (id == null) return;
-    final db = await database;
-    await db.update(
-      'schedules',
-      edited.withDate(key).toMap()
-        ..['id'] = id
-        ..['day_of_week'] = dayOfWeek,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await saveScheduleDays(edited, {date.weekday - 1},
+        date: date, existing: shown);
   }
 
   Future<void> deleteScheduleOnDate(DateTime date, Schedule shown) async {
@@ -399,6 +472,7 @@ class DatabaseService implements TodoRepository {
   // Todos
   // ---------------------------------------------------------------------
 
+  @override
   Future<List<TodoItem>> getTodos() async {
     final db = await database;
     final rows = await db.query('todos',
@@ -406,6 +480,7 @@ class DatabaseService implements TodoRepository {
     return rows.map(TodoItem.fromMap).toList();
   }
 
+  @override
   Future<TodoItem> insertTodo(TodoItem todo) async {
     if (todo.title.trim().isEmpty ||
         todo.scheduledMinutes == null ||
@@ -418,12 +493,14 @@ class DatabaseService implements TodoRepository {
     return todo.copyWith(id: id);
   }
 
+  @override
   Future<void> updateTodo(TodoItem todo) async {
     final db = await database;
     await db
         .update('todos', todo.toMap(), where: 'id = ?', whereArgs: [todo.id]);
   }
 
+  @override
   Future<void> deleteTodo(int id) async {
     final db = await database;
     await db.delete('todos', where: 'id = ?', whereArgs: [id]);

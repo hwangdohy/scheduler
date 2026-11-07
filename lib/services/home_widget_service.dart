@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:home_widget/home_widget.dart';
 
 import '../models/schedule.dart';
@@ -21,13 +22,17 @@ class HomeWidgetService {
   static const String keyLines = 'today_lines';
 
   Future<void> refresh() async {
-    if (kIsWeb) return;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
 
     final today = DateTime.now();
     final schedules = await DatabaseService.instance.getSchedulesForDate(today);
-    final lines = schedules.take(4).map(_formatLine).join('\n');
+    final lines = schedules.map(_formatLine).join('\n');
 
     try {
+      final snapshot =
+          await DatabaseService.instance.getWidgetScheduleSnapshot();
+      await HomeWidget.saveWidgetData<String>(
+          'schedule_snapshot', jsonEncode(snapshot));
       await HomeWidget.saveWidgetData<String>(keyDate, _formatDate(today));
       await HomeWidget.saveWidgetData<String>(
         keyCount,

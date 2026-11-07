@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../models/schedule.dart';
 import '../../../services/database_service.dart';
+import '../../../services/schedule_conflict.dart';
 import '../../../theme/app_colors.dart';
 import '../../../widgets/wheel_time_picker.dart';
 
@@ -57,6 +58,7 @@ class _ScheduleFormSheetState extends State<ScheduleFormSheet> {
   late final TextEditingController _titleController;
   late final TextEditingController _memoController;
   late int _dayOfWeek;
+  late final Set<int> _selectedDays;
   late int _startMinutes;
   late int _endMinutes;
   late int _colorValue;
@@ -74,9 +76,10 @@ class _ScheduleFormSheetState extends State<ScheduleFormSheet> {
     _dayOfWeek = widget.date != null
         ? widget.date!.weekday - 1
         : e?.dayOfWeek ?? widget.initialDay ?? 0;
+    _selectedDays = {_dayOfWeek};
     _startMinutes = e?.startMinutes ?? (widget.initialHour ?? 9) * 60;
     _endMinutes = e?.endMinutes ?? (_startMinutes + 60).clamp(1, 1440).toInt();
-    _colorValue = e?.colorValue ?? AppColors.scheduleColors.first.value;
+    _colorValue = e?.colorValue ?? AppColors.scheduleColors.first.toARGB32();
   }
 
   @override
@@ -146,18 +149,24 @@ class _ScheduleFormSheetState extends State<ScheduleFormSheet> {
       memo: _memoController.text.trim(),
     );
     final db = DatabaseService.instance;
-    if (date != null) {
-      if (_isEdit) {
-        await db.updateScheduleOnDate(date, widget.existing!, edited);
-      } else {
-        await db.addScheduleToDate(date, edited);
+    try {
+      await db.saveScheduleDays(edited, _selectedDays,
+          date: date, existing: widget.existing);
+      if (mounted) Navigator.of(context).pop(true);
+    } on ScheduleConflict catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
       }
-    } else if (_isEdit) {
-      await db.updateTemplateSchedule(edited);
-    } else {
-      await db.insertTemplateSchedule(edited);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('저장하지 못했습니다. 다시 시도해 주세요.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-    if (mounted) Navigator.of(context).pop(true);
   }
 
   Future<void> _pickTime(bool isEnd) async {
@@ -174,8 +183,9 @@ class _ScheduleFormSheetState extends State<ScheduleFormSheet> {
         _endMinutes = picked;
       } else {
         _startMinutes = picked;
-        if (_endMinutes <= picked)
+        if (_endMinutes <= picked) {
           _endMinutes = (picked + 60).clamp(picked + 1, 1440).toInt();
+        }
       }
     });
   }
@@ -226,8 +236,10 @@ class _ScheduleFormSheetState extends State<ScheduleFormSheet> {
               const SizedBox(height: 6),
               Text(
                 _isDateMode
-                    ? '${_dateLabel(widget.date!)} 하루에만 적용돼요'
-                    : '기본 일정 · 매주 ${kWeekDaysKr[_dayOfWeek]}요일 반복',
+                    ? _selectedDays.length == 1
+                        ? '${_dateLabel(widget.date!)} 하루에만 적용돼요'
+                        : '선택한 요일에 적용 · ${_dateLabel(mondayOfWeek(widget.date!))} 주간'
+                    : '기본 일정 · 매주 ${(_selectedDays.toList()..sort()).map((d) => kWeekDaysKr[d]).join('·')}요일 반복',
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -264,9 +276,11 @@ class _ScheduleFormSheetState extends State<ScheduleFormSheet> {
                 minLines: 1,
                 maxLines: 3,
               ),
-              if (!_isDateMode) ...[
+              ...[
                 const SizedBox(height: 20),
-                const Text('요일', style: TextStyle(fontWeight: FontWeight.w700)),
+                Text(_isDateMode ? '적용할 요일 (이번 주)' : '반복할 요일 (여러 개 선택)',
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                if (_isEdit) const Text('원래 요일은 유지하고, 다른 요일에는 새 일정으로 추가합니다.'),
                 const SizedBox(height: 10),
                 Row(
                   children: [
@@ -276,8 +290,21 @@ class _ScheduleFormSheetState extends State<ScheduleFormSheet> {
                           padding: const EdgeInsets.symmetric(horizontal: 3),
                           child: _DayChip(
                             label: kWeekDaysKr[d],
-                            selected: _dayOfWeek == d,
-                            onTap: () => setState(() => _dayOfWeek = d),
+                            selected: _selectedDays.contains(d),
+                            onTap: () {
+                              if (_saving || (_isEdit && d == _dayOfWeek)) {
+                                return;
+                              }
+                              setState(() {
+                                if (_selectedDays.contains(d)) {
+                                  if (_selectedDays.length > 1) {
+                                    _selectedDays.remove(d);
+                                  }
+                                } else {
+                                  _selectedDays.add(d);
+                                }
+                              });
+                            },
                           ),
                         ),
                       ),
@@ -308,8 +335,8 @@ class _ScheduleFormSheetState extends State<ScheduleFormSheet> {
                   for (final c in AppColors.scheduleColors)
                     _ColorDot(
                       color: c,
-                      selected: c.value == _colorValue,
-                      onTap: () => setState(() => _colorValue = c.value),
+                      selected: c.toARGB32() == _colorValue,
+                      onTap: () => setState(() => _colorValue = c.toARGB32()),
                     ),
                 ],
               ),

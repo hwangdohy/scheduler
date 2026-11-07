@@ -7,6 +7,7 @@ import '../../theme/app_colors.dart';
 import 'widgets/schedule_form_sheet.dart';
 import 'widgets/schedule_grid.dart';
 import 'csv_import_screen.dart';
+import 'widgets/schedule_clear_menu.dart';
 
 /// Editor for the 기본 일정 — the weekly template every date falls back to
 /// until that date is edited on its own.
@@ -78,6 +79,12 @@ class _TemplateScheduleScreenState extends State<TemplateScheduleScreen> {
         appBar: AppBar(
           title: const Text('기본 일정'),
           actions: [
+            ScheduleClearMenu(onClear: (day) async {
+              await DatabaseService.instance
+                  .clearTemplateSchedules(dayOfWeek: day);
+              _changed = true;
+              await _load();
+            }),
             IconButton(
               tooltip: 'CSV로 기본 일정 추가',
               icon: const Icon(Icons.upload_file_rounded),
